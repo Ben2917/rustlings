@@ -13,6 +13,7 @@ const RUSTC_NO_DEBUG_ARGS: &[&str] = &["-C", "strip=debuginfo"];
 const I_AM_DONE_REGEX: &str = r"(?m)^\s*///?\s*I\s+AM\s+NOT\s+DONE";
 const CONTEXT: usize = 2;
 const CLIPPY_CARGO_TOML_PATH: &str = "./exercises/22_clippy/Cargo.toml";
+const COVERAGE_CARGO_TOML_PATH: &str = "./exercises/17_tests/Cargo.toml";
 
 // Get a temporary file name that is hopefully unique
 #[inline]
@@ -35,6 +36,8 @@ pub enum Mode {
     Test,
     // Indicates that the exercise should be linted with clippy
     Clippy,
+    // Indicates that the exercise should be compiled as a test harness with coverage
+    Coverage,
 }
 
 #[derive(Deserialize)]
@@ -50,10 +53,10 @@ pub struct Exercise {
     pub name: String,
     // The path to the file containing the exercise's source code
     pub path: PathBuf,
-    // The mode of the exercise (Test, Compile, or Clippy)
+    // The mode of the exercise (Test, Compile, Clippy or Coverage)
     pub mode: Mode,
     // The hint text associated with the exercise
-    pub hint: String,
+    pub hint: String, 
 }
 
 // An enum to track of the state of an Exercise.
@@ -88,6 +91,10 @@ impl<'a> CompiledExercise<'a> {
     pub fn run(&self) -> Result<ExerciseOutput, ExerciseOutput> {
         self.exercise.run()
     }
+    // Run coverage on the compiled exercise
+    pub fn run_coverage(&self) -> Result<CoverageOutput, ExerciseOutput> {
+        self.exercise.run_coverage()
+    }
 }
 
 // A representation of an already executed binary
@@ -97,6 +104,14 @@ pub struct ExerciseOutput {
     pub stdout: String,
     // The textual contents of the standard error of the binary
     pub stderr: String,
+}
+
+// Representation of a completed coverage report
+pub struct CoverageOutput {
+    // Coverage data in json format
+    pub json: String,
+    // Coverage output in readable plaintext
+    pub plaintext: String,
 }
 
 struct FileHandle;
@@ -116,7 +131,7 @@ impl Exercise {
                 .args(RUSTC_EDITION_ARGS)
                 .args(RUSTC_NO_DEBUG_ARGS)
                 .output(),
-            Mode::Test => Command::new("rustc")
+            Mode::Test | Mode::Coverage => Command::new("rustc")
                 .args(["--test", self.path.to_str().unwrap(), "-o", &temp_file()])
                 .args(RUSTC_COLOR_ARGS)
                 .args(RUSTC_EDITION_ARGS)
@@ -164,7 +179,7 @@ path = "{}.rs""#,
                     .args(RUSTC_COLOR_ARGS)
                     .args(["--", "-D", "warnings", "-D", "clippy::float_cmp"])
                     .output()
-            }
+                }
         }
         .expect("Failed to run 'compile' command.");
 
@@ -180,6 +195,48 @@ path = "{}.rs""#,
                 stderr: String::from_utf8_lossy(&cmd.stderr).to_string(),
             })
         }
+    }
+
+    pub fn run_coverage(&self) -> Result<CoverageOutput, ExerciseOutput> {
+        let cargo_toml = format!(
+            r#"[package]
+name = "{}"
+version = "0.0.1"
+edition = "2021"
+[[bin]]
+name = "{}"
+path = "{}.rs""#,
+            self.name, self.name, self.name
+        );
+        fs::write(COVERAGE_CARGO_TOML_PATH, cargo_toml)
+            .expect("failed to generate cargo.toml for coverage exercise");
+
+        let coverage_result_json = Command::new("cargo")
+            .args(["llvm-cov", "--json", "--manifest-path", COVERAGE_CARGO_TOML_PATH])
+            .output()
+            .expect("Failed to get json output from llvm-cov");
+        if !coverage_result_json.status.success() {
+            return Err(ExerciseOutput {
+                stdout: String::from_utf8_lossy(&coverage_result_json.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&coverage_result_json.stderr).to_string(),
+            });
+        }
+
+        let coverage_output_plaintext = Command::new("cargo")
+            .args(["llvm-cov", "--text", "--manifest-path", COVERAGE_CARGO_TOML_PATH])
+            .output()
+            .expect("Failed to get plaintext output from llvm-cov");
+        if !coverage_output_plaintext.status.success() {
+            return Err(ExerciseOutput {
+                stdout: String::from_utf8_lossy(&coverage_result_json.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&coverage_result_json.stderr).to_string(),
+            }); 
+        }
+
+        Ok(CoverageOutput {
+            json: String::from_utf8_lossy(&coverage_result_json.stdout).to_string(), 
+            plaintext: String::from_utf8_lossy(&coverage_output_plaintext.stdout).to_string()
+        })
     }
 
     fn run(&self) -> Result<ExerciseOutput, ExerciseOutput> {

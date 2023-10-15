@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::exercise::{Exercise, Mode};
 use crate::verify::test;
+use crate::verify::test_with_coverage;
 use indicatif::ProgressBar;
 
 // Invoke the rust compiler on the path of the given exercise,
@@ -11,6 +12,7 @@ use indicatif::ProgressBar;
 // the output from the test harnesses (if the mode of the exercise is test)
 pub fn run(exercise: &Exercise, verbose: bool) -> Result<(), ()> {
     match exercise.mode {
+        Mode::Coverage => test_with_coverage(exercise, verbose)?,
         Mode::Test => test(exercise, verbose)?,
         Mode::Compile => compile_and_run(exercise)?,
         Mode::Clippy => compile_and_run(exercise)?,

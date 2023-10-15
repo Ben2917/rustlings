@@ -932,6 +932,27 @@ To handle that you need to add a special attribute to the test function.
 You can refer to the docs:
 https://doc.rust-lang.org/stable/book/ch11-01-writing-tests.html#checking-for-panics-with-should_panic"""
 
+[[exercises]]
+name = "tests5"
+path = "exercises/17_tests/tests5.rs"
+mode = "coverage"
+hint = """
+Part 1:
+In the coverage report you will see something like this:
+   28|      1|fn convert_kilometers_to_unit(kilometers : i32, output_unit : Unit) -> i32{
+   29|      1|    match output_unit {
+   30|      0|        Unit::Millimeters => kilometers * 1000000,
+   31|      0|        Unit::Centimeters => kilometers * 10000,
+   32|      1|        Unit::Meters => kilometers * 1000
+   33|       |    }
+   34|      1|}
+As you can see, lines 30 and 31 are marked with a 0 indicating there are no tests running 
+them. Your goal is to add tests for these cases using the existing test for reference.
+
+Part 2:
+One of the untested conversions is incorrect!"""
+
+
 # STANDARD LIBRARY TYPES
 
 [[exercises]]

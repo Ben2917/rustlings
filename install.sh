@@ -181,4 +181,7 @@ then
     rustup component add clippy
 fi
 
+# Required for tests with coverage reports
+cargo install cargo-llvm-cov
+
 echo "All done! Run 'rustlings' to get started."

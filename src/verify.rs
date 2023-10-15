@@ -1,4 +1,4 @@
-use crate::exercise::{CompiledExercise, Exercise, Mode, State};
+use crate::exercise::{CompiledExercise, Exercise, Mode, State, CoverageOutput};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{env, time::Duration};
@@ -28,6 +28,7 @@ pub fn verify<'a>(
 
     for exercise in exercises {
         let compile_result = match exercise.mode {
+            Mode::Coverage => compile_run_coverage_and_test(exercise, RunMode::Interactive, verbose, success_hints),
             Mode::Test => compile_and_test(exercise, RunMode::Interactive, verbose, success_hints),
             Mode::Compile => compile_and_run_interactively(exercise, success_hints),
             Mode::Clippy => compile_only(exercise, success_hints),
@@ -50,6 +51,11 @@ enum RunMode {
 // Compile and run the resulting test harness of the given Exercise
 pub fn test(exercise: &Exercise, verbose: bool) -> Result<(), ()> {
     compile_and_test(exercise, RunMode::NonInteractive, verbose, false)?;
+    Ok(())
+}
+
+pub fn test_with_coverage(exercise: &Exercise, verbose: bool) -> Result<(), ()> {
+    compile_run_coverage_and_test(exercise, RunMode::NonInteractive, verbose, false)?;
     Ok(())
 }
 
@@ -154,6 +160,92 @@ fn compile<'a>(
     }
 }
 
+struct CoverageInfo {
+    is_complete : bool,
+    coverage_percentage : f64,
+}
+
+fn parse_coverage_info(coverage_json: &str) -> Result<CoverageInfo, ()> {
+    let parsed_result: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(&coverage_json);
+    match parsed_result {
+        Ok(ok_result) => {
+            let total_lines = ok_result["data"][0]["totals"]["lines"]["count"].as_i64().unwrap();
+            let lines_covered = ok_result["data"][0]["totals"]["lines"]["covered"].as_i64().unwrap();
+            let coverage_percentage = ok_result["data"][0]["totals"]["lines"]["percent"].as_f64().unwrap();
+            Ok(CoverageInfo { 
+                is_complete: lines_covered == total_lines, 
+                coverage_percentage: coverage_percentage.round() 
+            })
+        },
+        Err(_) => {
+            println!("Failed to parse coverage json");
+            Err(())
+        }
+    }
+}
+
+fn handle_ok_coverage_run_result(
+    coverage_output: CoverageOutput,
+    exercise: &Exercise,
+    run_mode: RunMode,
+    verbose: bool,
+    success_hints: bool
+) -> Result<bool, ()> {
+    let coverage_info = parse_coverage_info(&coverage_output.json)?;
+    if coverage_info.is_complete {
+        if verbose {
+            println!("{}", &coverage_output.plaintext);
+            println!("Line coverage: {}%", coverage_info.coverage_percentage);    
+        }
+
+        if let RunMode::Interactive = run_mode {
+            Ok(prompt_for_completion(exercise, None, success_hints))
+        }
+        else {
+            Ok(true)
+        }
+    }
+    else {
+        warn!(
+            "Coverage of {} is incomplete! Please try again.", 
+            exercise
+        ); 
+        println!("{}", &coverage_output.plaintext);
+        println!("Line coverage: {}%", coverage_info.coverage_percentage);
+        Err(())
+    }
+}
+
+fn compile_run_coverage_and_test(
+    exercise: &Exercise,
+    run_mode: RunMode,
+    verbose: bool,
+    success_hints: bool,
+) -> Result<bool, ()> {
+
+    let progress_bar = ProgressBar::new_spinner();
+    progress_bar.set_message(format!("Running coverage on {exercise}..."));
+    progress_bar.enable_steady_tick(Duration::from_millis(100));
+
+    let compilation = compile(exercise, &progress_bar)?;
+    let coverage_run_result = compilation.run_coverage();
+    progress_bar.finish_and_clear();
+
+    match coverage_run_result {
+        Ok(ok_output) => {
+            handle_ok_coverage_run_result(ok_output, exercise, run_mode, verbose, success_hints)        
+        },
+        Err(err_output) => {
+            warn!(
+                "Testing of {} failed! Please try again. Here's the output:",
+                exercise
+            );
+            println!("{}", err_output.stderr);
+            Err(())
+        }
+    }
+}
+
 fn prompt_for_completion(
     exercise: &Exercise,
     prompt_output: Option<String>,
@@ -166,6 +258,7 @@ fn prompt_for_completion(
     match exercise.mode {
         Mode::Compile => success!("Successfully ran {}!", exercise),
         Mode::Test => success!("Successfully tested {}!", exercise),
+        Mode::Coverage => success!("Successfully tested and covered {}!", exercise),
         Mode::Clippy => success!("Successfully compiled {}!", exercise),
     }
 
@@ -180,6 +273,7 @@ fn prompt_for_completion(
     let success_msg = match exercise.mode {
         Mode::Compile => "The code is compiling!",
         Mode::Test => "The code is compiling, and the tests pass!",
+        Mode::Coverage => "The code is compiling, the tests pass, and the coverage is complete",
         Mode::Clippy => clippy_success_msg,
     };
     println!();

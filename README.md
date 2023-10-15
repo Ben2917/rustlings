@@ -85,6 +85,12 @@ cd rustlings
 cargo install --force --path .
 ```
 
+You will also need to install the llvm-cov crate for some of the tests exercises. Run:
+
+```bash
+cargo install cargo-llvm-cov
+```
+
 If there are installation errors, ensure that your toolchain is up to date. For the latest, run:
 
 ```bash
